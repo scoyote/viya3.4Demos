@@ -1,0 +1,151 @@
+
+# Load necessary packages
+library('swat')
+library('ggplot2')
+library('reshape2')
+library('dplyr')
+library('purrr')  # flatten_chr() very nice:)
+
+options(cas.print.messages = TRUE)
+
+conn <- CAS('localhost', port=5570, caslib = 'casuser',authinfo='/home/sasdemo/.authinfo')
+
+actionsets <- c('sampling', 'fedsql', 'decisionTree', 'neuralNet', 'percentile')
+for(i in actionsets){
+  loadActionSet(conn, i)
+}
+
+
+#define local dataframe handle to data in CAS
+castbl <- defCasTable(conn,tablename = "readmission_analysis",caslib = 'public')
+
+# Now use some overloaded R-swat functions
+head(castbl)
+
+summary(castbl)
+
+## Bring data locally - if you have a few hours...
+#local_readmit <- to.casDataFrame(castbl, obs = nrow(castbl))
+
+# take a look at the distribution of the partition
+cas.simple.freq(castbl[,15])
+
+cas.simple.groupBy(castbl,inputs=c('readmit_number','_partind_'), aggregator='N')
+
+cas.nmiss(castbl)
+
+indata <- 'readmission_analysis'
+
+# Get variable info and types
+colinfo <- as.data.frame(cas.table.columnInfo(castbl))
+
+# My target variable is the first column
+target <- 'readmit_number'
+
+# For models that can inherently handle missing values (ex: Decision Tree)
+inputs <- colinfo[c(5:9,11:14),1]
+
+nominals <- flatten_chr(rbind('readmit_number',subset(colinfo[c(5:9,11:14),], ColumnInfo.Type == 'varchar')[1]))
+
+cas.decisionTree.dtreeTrain(conn,
+                            table = list(caslib='public',name = indata, where = '_PartInd_ = 0'),
+                            target = target,
+                            inputs = inputs,
+                            nominals = c(nominals),
+                            varImp = TRUE,
+                            casOut = list(name = 'dt_model', replace = TRUE)
+)
+
+# Train the forest model
+cas.decisionTree.forestTrain(conn,
+                             table = list(caslib='public',name = indata, where = '_PartInd_ = 0'),
+                             target = target,
+                             inputs = inputs,
+                             nominals = nominals,
+                             casOut = list(name = 'rf_model', replace = TRUE)
+)
+
+cas.decisionTree.gbtreeTrain(conn,
+                             table = list(caslib='public',name = indata, where = '_PartInd_ = 0'),
+                             target = target,
+                             inputs = inputs,
+                             nominals = nominals,
+                             casOut = list(name = 'gbt_model', replace = TRUE),
+                             saveState=list(caslib='public',name='readmit_gb_astore',promote=TRUE)
+)
+
+cas.neuralNet.annTrain(conn,
+                       table = list(caslib='public',name = indata, where = '_PartInd_ = 0'),
+                       target = target,
+                       inputs = inputs,
+                       hidden = 7,
+                       nominals = nominals,
+                       casOut = list(name = 'nn_model', replace = TRUE)
+)
+
+models <- c('dt','rf','gbt','nn')
+scores <- c(cas.decisionTree.dtreeScore, cas.decisionTree.forestScore, 
+            cas.decisionTree.gbtreeScore, cas.neuralNet.annScore)
+names(scores) <- models
+
+# Function to help automate prediction process on new data
+score.params <- function(model){return(list(
+  object       = defCasTable(conn, indata,caslib='public'),
+  modelTable   = list(name = paste0(model, '_model')),
+  copyVars     = list(target, '_PartInd_'),
+  assessonerow = TRUE,
+  casOut       = list(name = paste0(model, '_scored'), replace = T)
+))}
+lapply(models, function(x) {do.call(scores[[x]], score.params(x))})
+
+# Load the percentile actionset for scoring
+loadActionSet(conn, 'percentile')
+
+# Useful function for model assessment
+assess.model <- function(model){
+  cas.percentile.assess(conn,
+                        table    = list(name = paste0(model,'_scored'), 
+                                        where = '_PartInd_ = 1'),
+                        inputs   = paste0('_', model, '_P_           1'),
+                        response = target,
+                        event    = '1')
+}
+
+model.names <- c('Decision Tree', 'Random Forest', 
+                 'Gradient Boosting', 'Neural Network')
+roc.df <- data.frame()
+for (i in 1:length(models)){
+  tmp <- (assess.model(models[i]))$ROCInfo
+  tmp$Model <- model.names[i] 
+  roc.df <- rbind(roc.df, tmp)
+}
+
+# Manipulate the dataframe
+compare <- subset(roc.df, round(roc.df$CutOff, 2) == 0.5)
+rownames(compare) <- NULL
+compare[,c('Model','TP','FP','FN','TN')]
+
+# Build a dataframe to compare the misclassification rates
+compare$Misclassification <- 1 - compare$ACC
+miss <- compare[order(compare$Misclassification), c('Model','Misclassification')]
+rownames(miss) <- NULL
+miss
+
+# Add a new column to be used as the ROC curve label
+roc.df$Models <- paste(roc.df$Model, round(roc.df$C, 3), sep = ' - ')
+
+# Create the ROC curve
+ggplot(data = roc.df[c('FPR', 'Sensitivity', 'Models')],
+       aes(x = as.numeric(FPR), y = as.numeric(Sensitivity), colour = Models)) +
+  geom_line() +
+  labs(x = 'False Positive Rate', y = 'True Positive Rate')
+
+
+source(file = '/home/sasdemo/R/ReadmissionRFunctions.R')
+logon_response <- getAuthToken('http://localhost', 'sasdemo', 'Orion123',base64_enc("restapp:testpw"))
+token = flatten_chr(logon_response[1])
+
+
+
+# End the session
+cas.session.endSession(conn)
