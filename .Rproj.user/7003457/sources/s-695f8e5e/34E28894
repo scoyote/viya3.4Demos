@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1537378613346.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "2765369159",
+    "id" : "34E28894",
+    "lastKnownWriteTime" : 1537386117,
+    "last_content_update" : 1537386117562,
+    "path" : "~/viya3.4Demos/ReadmissionRFunctions.R",
+    "project_path" : "ReadmissionRFunctions.R",
+    "properties" : {
+        "cursorPosition" : "41,1",
+        "scrollLine" : "27"
+    },
+    "relative_order" : 2,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}

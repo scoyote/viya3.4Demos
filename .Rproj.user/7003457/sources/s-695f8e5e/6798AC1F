@@ -1,0 +1,22 @@
+{
+    "collab_server" : "",
+    "contents" : "",
+    "created" : 1537378642717.000,
+    "dirty" : false,
+    "encoding" : "UTF-8",
+    "folds" : "",
+    "hash" : "4140740038",
+    "id" : "6798AC1F",
+    "lastKnownWriteTime" : 1537389201,
+    "last_content_update" : 1537389201539,
+    "path" : "~/viya3.4Demos/ReadmissionStoryR.R",
+    "project_path" : "ReadmissionStoryR.R",
+    "properties" : {
+        "cursorPosition" : "189,0",
+        "scrollLine" : "169"
+    },
+    "relative_order" : 1,
+    "source_on_save" : false,
+    "source_window" : "",
+    "type" : "r_source"
+}
